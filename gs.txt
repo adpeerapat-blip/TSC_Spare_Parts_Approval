@@ -1,0 +1,472 @@
+const SHEET_ID = "1iyf-WK8ZUPEYZ5uLTvXLhlKgqVSgvrEjV0G_MKNUI20";
+const SIGNATURE_FOLDER_ID = "1UHCdBxsmkP5Y8YBlMT6obLJIdiPOoVJX";
+const PDF_FOLDER_ID = "13I314i4I-gkX3TgpNETC4T3m_6KLcxTL";
+const SHIPMENT_IMAGE_FOLDER_ID = "1dp3AVpBX6NEwq0l9wjzqw0PhwNyNUNJj";
+const DRIVE_FOLDER_ID = SHIPMENT_IMAGE_FOLDER_ID;
+
+// Firebase Realtime Database URL
+const FIREBASE_DB_URL = "https://pk-tank-393ee-default-rtdb.asia-southeast1.firebasedatabase.app";
+
+// --- SPREADSHEET AND SHEET REFERENCES ---
+const ss = SpreadsheetApp.openById(SHEET_ID);
+let usersSheet = ss.getSheetByName("Users");
+let docsSheet = ss.getSheetByName("Documents");
+let settingsSheet = ss.getSheetByName("Settings");
+let partsSheet = ss.getSheetByName("Parts");
+
+const usersHeaders = ["UserID", "Name", "Email", "Phone", "PasswordHash", "Salt", "Role", "ApprovalLevel", "SignatureLink", "CreatedAt"];
+const docsHeaders = ["DocID", "CreatedAt", "RequesterEmail", "RequesterName", "Status", "Type", "CustomerType", "RepairRequestNo", "CustomerName", "DefectSymptom", "MachineModel", "SerialNumber", "DishFeederModel", "FeederSerialNumber", "Technician", "RequesterNotes", "ItemsJSON", "TotalPrice", "RequesterSignatureLink", "Approver1Email", "Approver1Decision", "Approver1Notes", "Approver1Timestamp", "Approver1SignatureLink", "Approver2Email", "Approver2Decision", "Approver2Notes", "Approver2Timestamp", "Approver2SignatureLink", "ShippingStatus", "TrackingNumber", "InTransitTimestamp", "ShippedOutTimestamp", "ReceivedTimestamp", "ShipmentNotes", "ShipmentImagesJSON", "PdfLink"];
+const settingsHeaders = ["SettingName", "Value"];
+const partsHeaders = ["PartCode", "PartName", "Price"];
+
+// Helper to encode/decode emails for Firebase keys (dots are forbidden in keys)
+function encodeEmail(email) {
+  if (!email) return "";
+  return email.replace(/\./g, ',');
+}
+
+function decodeEmail(encodedEmail) {
+  if (!encodedEmail) return "";
+  return encodedEmail.replace(/,/g, '.');
+}
+
+/**
+ * Creates custom menu in Google Sheets
+ */
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('Firebase Sync')
+      .addItem('อัปโหลดข้อมูลไป Firebase (Upload)', 'uploadToFirebase')
+      .addItem('ดาวน์โหลดข้อมูลจาก Firebase (Download)', 'downloadFromFirebase')
+      .addToUi();
+}
+
+/**
+ * Upload all sheets to Firebase Realtime Database as JSON
+ */
+function uploadToFirebase() {
+  const ui = SpreadsheetApp.getUi();
+
+  // Prompt for admin password to prevent accidental uploads
+  const response = ui.prompt('ยืนยันรหัสผ่าน', 'กรุณากรอกรหัสผ่านเพื่อดำเนินการอัปโหลดข้อมูล:', ui.ButtonSet.OK_CANCEL);
+  if (response.getSelectedButton() !== ui.Button.OK) {
+    return;
+  }
+
+  const password = response.getResponseText();
+  if (password !== 'admin') {
+    ui.alert('ข้อผิดพลาด', 'รหัสผ่านไม่ถูกต้อง! ไม่สามารถอัปโหลดข้อมูลได้', ui.ButtonSet.OK);
+    return;
+  }
+
+  try {
+    setup(); // Ensure headers and sheets exist
+    
+    // 1. Users
+    const users = sheetToObjects(usersSheet);
+    const usersMap = {};
+    users.forEach(user => {
+      if (user.Email) {
+        if (user.CreatedAt instanceof Date) {
+          user.CreatedAt = user.CreatedAt.toISOString();
+        }
+        usersMap[encodeEmail(user.Email)] = user;
+      }
+    });
+
+    // 2. Documents
+    const docs = sheetToObjects(docsSheet);
+    const docsMap = {};
+    docs.forEach(doc => {
+      if (doc.DocID) {
+        // Convert Date properties to ISO string
+        ["CreatedAt", "Approver1Timestamp", "Approver2Timestamp", "InTransitTimestamp", "ShippedOutTimestamp", "ReceivedTimestamp"].forEach(field => {
+          if (doc[field] instanceof Date) {
+            doc[field] = doc[field].toISOString();
+          }
+        });
+        docsMap[doc.DocID] = doc;
+      }
+    });
+
+    // 3. Settings
+    const settings = sheetToObjects(settingsSheet);
+    const settingsMap = {};
+    settings.forEach(setting => {
+      if (setting.SettingName) {
+        settingsMap[setting.SettingName] = setting;
+      }
+    });
+
+    // 4. Parts
+    const parts = sheetToObjects(partsSheet);
+    const partsMap = {};
+    parts.forEach(part => {
+      if (part.PartCode) {
+        partsMap[part.PartCode] = part;
+      }
+    });
+
+    const options = (data) => ({
+      method: "put",
+      contentType: "application/json",
+      payload: JSON.stringify(data),
+      muteHttpExceptions: true
+    });
+
+    UrlFetchApp.fetch(`${FIREBASE_DB_URL}/Users.json`, options(usersMap));
+    UrlFetchApp.fetch(`${FIREBASE_DB_URL}/Documents.json`, options(docsMap));
+    UrlFetchApp.fetch(`${FIREBASE_DB_URL}/Settings.json`, options(settingsMap));
+    UrlFetchApp.fetch(`${FIREBASE_DB_URL}/Parts.json`, options(partsMap));
+
+    ui.alert("สำเร็จ", "อัปโหลดข้อมูลจาก Google Sheets ไปยัง Firebase เรียบร้อยแล้ว!", ui.ButtonSet.OK);
+  } catch (error) {
+    ui.alert("เกิดข้อผิดพลาด", "เกิดข้อผิดพลาดในการอัปโหลด: " + error.toString(), ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * Download all data from Firebase Realtime Database and populate Sheets
+ */
+function downloadFromFirebase() {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.alert("ยืนยันการเขียนทับ", "คำเตือน: ข้อมูลเดิมในชีตจะถูกลบและเขียนทับด้วยข้อมูลปัจจุบันจาก Firebase คุณต้องการดำเนินการต่อหรือไม่?", ui.ButtonSet.YES_NO);
+  if (response !== ui.Button.YES) return;
+
+  try {
+    setup(); // Ensure headers and sheets are ready
+
+    const fetchOptions = {
+      method: "get",
+      muteHttpExceptions: true
+    };
+
+    const usersResponse = UrlFetchApp.fetch(`${FIREBASE_DB_URL}/Users.json`, fetchOptions);
+    const docsResponse = UrlFetchApp.fetch(`${FIREBASE_DB_URL}/Documents.json`, fetchOptions);
+    const settingsResponse = UrlFetchApp.fetch(`${FIREBASE_DB_URL}/Settings.json`, fetchOptions);
+    const partsResponse = UrlFetchApp.fetch(`${FIREBASE_DB_URL}/Parts.json`, fetchOptions);
+
+    const usersData = JSON.parse(usersResponse.getContentText()) || {};
+    const docsData = JSON.parse(docsResponse.getContentText()) || {};
+    const settingsData = JSON.parse(settingsResponse.getContentText()) || {};
+    const partsData = JSON.parse(partsResponse.getContentText()) || {};
+
+    writeMapToSheet(usersSheet, usersHeaders, usersData, "Email");
+    writeMapToSheet(docsSheet, docsHeaders, docsData, "DocID");
+    writeMapToSheet(settingsSheet, settingsHeaders, settingsData, "SettingName");
+    writeMapToSheet(partsSheet, partsHeaders, partsData, "PartCode");
+
+    ui.alert("สำเร็จ", "ดาวน์โหลดข้อมูลจาก Firebase มายัง Google Sheets เรียบร้อยแล้ว!", ui.ButtonSet.OK);
+  } catch (error) {
+    ui.alert("เกิดข้อผิดพลาด", "เกิดข้อผิดพลาดในการดาวน์โหลด: " + error.toString(), ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * Helper to write Firebase JSON map to sheet rows
+ */
+function writeMapToSheet(sheet, headers, mapData, keyField) {
+  sheet.clearContents();
+  setHeaders(sheet, headers);
+  
+  const values = [];
+  for (const key in mapData) {
+    const item = mapData[key];
+    const row = headers.map(header => {
+      let val = item[header];
+      if (val === undefined || val === null) return "";
+      
+      // Convert timestamp ISO strings back to date objects for sheet formatting
+      if (header.endsWith("Timestamp") || header === "CreatedAt") {
+        if (typeof val === "string" && val !== "") {
+          const dateVal = new Date(val);
+          if (!isNaN(dateVal.getTime())) {
+            return dateVal;
+          }
+        }
+      }
+      return val;
+    });
+    values.push(row);
+  }
+  
+  if (values.length > 0) {
+    sheet.getRange(2, 1, values.length, headers.length).setValues(values);
+  }
+}
+
+/**
+ * GET/POST endpoints for Web App deployment.
+ * Handles file uploads only.
+ */
+function doGet(e) {
+  return ContentService.createTextOutput(JSON.stringify({ status: 'ok', message: 'TSC file upload API is running.' }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  try {
+    const request = JSON.parse(e.postData.contents);
+    const action = request.action;
+    const payload = request.payload;
+
+    switch (action) {
+      case 'updateSignature':
+        return jsonResponse(updateSignature(payload));
+      case 'uploadShipmentImages':
+        return jsonResponse(uploadShipmentImages(payload));
+      default:
+        return jsonResponse({ error: "Invalid action for file-upload server" }, false);
+    }
+  } catch (error) {
+    Logger.log(error.toString());
+    return jsonResponse({ error: error.toString(), stack: error.stack }, false);
+  }
+}
+
+/**
+ * Upload signature base64 image to Google Drive and update in Firebase
+ */
+function updateSignature(payload) {
+    const { email, signatureData } = payload;
+    const userFolder = getOrCreateUserFolder(SIGNATURE_FOLDER_ID, email);
+    const signatureFileName = `sig_user_${email.replace(/@|\./g, '_')}.png`;
+    const signatureLink = saveFileToDrive(signatureData, userFolder.getId(), signatureFileName, 'image/png');
+
+    if (!signatureLink) {
+        return { success: false, message: "Failed to save signature to Drive." };
+    }
+
+    // Direct Firebase update
+    const encodedEmail = encodeEmail(email);
+    updateFirebaseNode(`Users/${encodedEmail}`, { SignatureLink: signatureLink });
+
+    return { success: true, message: "อัปเดตลายเซ็นสำเร็จ", newSignatureLink: signatureLink };
+}
+
+function getOrCreateUserFolder(parentFolderId, email) {
+  const parentFolder = DriveApp.getFolderById(parentFolderId);
+  const folderName = email.replace(/\./g, '_');
+  const folders = parentFolder.getFoldersByName(folderName);
+  if (folders.hasNext()) {
+    return folders.next();
+  } else {
+    const folder = parentFolder.createFolder(folderName);
+    folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return folder;
+  }
+}
+
+/**
+ * Upload multiple shipping base64 images to Google Drive and return links
+ */
+function uploadShipmentImages(payload) {
+    const { docId, images } = payload;
+    let imageLinks = [];
+    if (images && Array.isArray(images) && images.length > 0) {
+        const docFolder = getOrCreateDocFolder(SHIPMENT_IMAGE_FOLDER_ID, docId);
+        images.forEach((imgData, index) => {
+            if (imgData.startsWith('data:image')) {
+                const fileName = `${docId}_shipping_${Date.now()}_${index + 1}.png`;
+                const imgLink = saveFileToDrive(imgData, docFolder.getId(), fileName, 'image/png');
+                if (imgLink) {
+                    imageLinks.push(imgLink);
+                }
+            }
+        });
+    }
+    return { success: true, imageLinks: imageLinks };
+}
+
+/**
+ * Update a path in Firebase Realtime Database using REST API PATCH
+ */
+function updateFirebaseNode(path, data) {
+  const options = {
+    method: "patch",
+    contentType: "application/json",
+    payload: JSON.stringify(data),
+    muteHttpExceptions: true
+  };
+  UrlFetchApp.fetch(`${FIREBASE_DB_URL}/${path}.json`, options);
+}
+
+/**
+ * Save a base64 string as a file in Google Drive
+ */
+function saveFileToDrive(base64Data, folderId, fileName, mimeType) {
+  try {
+    const decoded = Utilities.base64Decode(base64Data.split(',')[1]);
+    const blob = Utilities.newBlob(decoded, mimeType, fileName);
+    const folder = DriveApp.getFolderById(folderId);
+    
+    // Trash previous signature file to avoid clutter
+    const files = folder.getFilesByName(fileName);
+    while (files.hasNext()) {
+      files.next().setTrashed(true);
+    }
+
+    const file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return `https://lh3.googleusercontent.com/d/${file.getId()}`;
+  } catch (e) {
+    Logger.log(`Failed to save file: ${e.toString()}`);
+    return "";
+  }
+}
+
+/**
+ * Get or create folder under Shipment folder
+ */
+function getOrCreateDocFolder(parentFolderId, docId) {
+  const parentFolder = DriveApp.getFolderById(parentFolderId);
+  const folders = parentFolder.getFoldersByName(docId);
+  if (folders.hasNext()) {
+    return folders.next();
+  } else {
+    return parentFolder.createFolder(docId);
+  }
+}
+
+/**
+ * Sets the headers for a given sheet.
+ */
+function setHeaders(sheet, headers) {
+    if (!sheet) return;
+    if (sheet.getLastColumn() < 1) {
+        sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    } else {
+        const currentHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+        if (currentHeaders.join('') !== headers.join('')) {
+            sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+        }
+    }
+    if (sheet.getFrozenRows() < 1) {
+        sheet.setFrozenRows(1);
+    }
+}
+
+/**
+ * Password hashing helper functions
+ */
+function bytesToHex(bytes) {
+  let hex = '';
+  for (let i = 0; i < bytes.length; i++) {
+    let byte = bytes[i];
+    if (byte < 0) byte += 256;
+    let hexString = byte.toString(16);
+    if (hexString.length === 1) hexString = '0' + hexString;
+    hex += hexString;
+  }
+  return hex;
+}
+
+function hashPassword(password, salt) {
+  const toHash = password + salt;
+  const hashBytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, toHash);
+  return bytesToHex(hashBytes);
+}
+
+/**
+ * Setup sheet formatting, default admin user, etc.
+ */
+function setup() {
+  const sheetNames = ["Users", "Documents", "Settings", "Parts"];
+  sheetNames.forEach(name => {
+    if (!ss.getSheetByName(name)) {
+      ss.insertSheet(name);
+    }
+  });
+
+  usersSheet = ss.getSheetByName("Users");
+  docsSheet = ss.getSheetByName("Documents");
+  settingsSheet = ss.getSheetByName("Settings");
+  partsSheet = ss.getSheetByName("Parts");
+
+  setHeaders(usersSheet, usersHeaders);
+  setHeaders(docsSheet, docsHeaders);
+  setHeaders(settingsSheet, settingsHeaders);
+  setHeaders(partsSheet, partsHeaders);
+
+  // Formatting plain text
+  const docColumnsToFormatAsText = ["RepairRequestNo", "SerialNumber", "FeederSerialNumber"];
+  docColumnsToFormatAsText.forEach(columnName => {
+    const colIndex = docsHeaders.indexOf(columnName) + 1;
+    if (colIndex > 0) {
+      docsSheet.getRange(1, colIndex, docsSheet.getMaxRows(), 1).setNumberFormat('@');
+    }
+  });
+
+  const phoneColIndex = usersHeaders.indexOf("Phone") + 1;
+  if (phoneColIndex > 0) {
+      usersSheet.getRange(1, phoneColIndex, usersSheet.getMaxRows(), 1).setNumberFormat('@');
+  }
+  
+  const partCodeColIndex = partsHeaders.indexOf("PartCode") + 1;
+  if (partCodeColIndex > 0 && partsSheet) {
+    partsSheet.getRange(1, partCodeColIndex, partsSheet.getMaxRows(), 1).setNumberFormat('@');
+  }
+  
+  const priceColIndex = partsHeaders.indexOf("Price") + 1;
+  if (priceColIndex > 0 && partsSheet) {
+      partsSheet.getRange(1, priceColIndex, partsSheet.getMaxRows(), 1).setNumberFormat('0.00');
+  }
+  
+  // Set default settings if not exists
+  const approverLinkSetting = findRow(settingsSheet, "approverLink", 1);
+  if (!approverLinkSetting) {
+    settingsSheet.appendRow(["approverLink", ""]);
+  }
+
+  const budgetSetting = findRow(settingsSheet, "budget", 1);
+  if (!budgetSetting) {
+    settingsSheet.appendRow(["budget", "500000"]);
+  }
+
+  // Create default admin user if not exists
+  const adminEmail = "nakyeet@gmail.com";
+  const adminData = findRow(usersSheet, adminEmail, 3);
+  if (!adminData) {
+    const salt = Utilities.getUuid();
+    const hashedPassword = hashPassword("123456789", salt);
+    usersSheet.appendRow([
+      Utilities.getUuid(), "Admin Nakyeet", adminEmail, "'" + "0972279469", hashedPassword, salt, "Admin", "Level 1+Level 2", "", new Date()
+    ]);
+  }
+}
+
+/**
+ * Finds a row in a sheet by value and column index.
+ */
+function findRow(sheet, value, col) {
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  const data = sheet.getRange(2, col, sheet.getLastRow() - 1, 1).getValues();
+  for (let i = 0; i < data.length; i++) {
+    if (data[i][0] == value) {
+      const rowNum = i + 2;
+      return { row: rowNum, data: sheet.getRange(rowNum, 1, 1, sheet.getLastColumn()).getValues()[0] };
+    }
+  }
+  return null;
+}
+
+/**
+ * Converts all sheet data to an array of objects.
+ */
+function sheetToObjects(sheet) {
+    if (!sheet || sheet.getLastRow() < 2) return [];
+    const data = sheet.getDataRange().getValues();
+    const headers = data.shift();
+    return data.map(row => {
+        let obj = {};
+        headers.forEach((header, i) => {
+            obj[header] = row[i];
+        });
+        return obj;
+    });
+}
+
+function jsonResponse(data, success = true) {
+  return ContentService.createTextOutput(JSON.stringify({ success, data }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
