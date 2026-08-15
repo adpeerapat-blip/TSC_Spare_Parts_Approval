@@ -4296,15 +4296,26 @@ async function showShippingTimeline(docId) {
                 return;
             }
             const data = await apiCall('getDocuments', { type: 'forApproval', userApprovalLevel: currentUser.approvalLevel }, false);
-            const badge = document.getElementById('approval-badge');
-            if (badge && data && data.documents) {
-                const count = data.documents.length;
-                if (count > 0) {
-                    badge.textContent = count;
-                    badge.classList.remove('hidden');
-                } else {
-                    badge.classList.add('hidden');
+            const badgeContainer = document.getElementById('approval-badges');
+            if (badgeContainer && data && data.documents) {
+                let l1Count = 0;
+                let l2Count = 0;
+                data.documents.forEach(doc => {
+                    if (doc.stage === 'รออนุมัติ Level 2') {
+                        l2Count++;
+                    } else {
+                        l1Count++;
+                    }
+                });
+
+                let badgesHtml = '';
+                if (l1Count > 0) {
+                    badgesHtml += `<span class="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap">L1: ${l1Count}</span>`;
                 }
+                if (l2Count > 0) {
+                    badgesHtml += `<span class="bg-blue-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap">L2: ${l2Count}</span>`;
+                }
+                badgeContainer.innerHTML = badgesHtml;
             }
         }
 
@@ -4325,7 +4336,7 @@ async function showShippingTimeline(docId) {
                 <li><a href="#" class="menu-item flex items-center px-6 py-3 text-cyan-100 hover:bg-cyan-700 hover:text-white" data-page="createDoc"><i data-lucide="file-plus-2" class="sidebar-icon"></i>สร้าง/จัดการเอกสาร</a></li>
             `;
             if (currentUser.role === 'Admin' || currentUser.role === 'Manager') {
-                menuHtml += `<li><a href="#" class="menu-item flex items-center justify-between px-6 py-3 text-cyan-100 hover:bg-cyan-700 hover:text-white" data-page="approveDoc"><div class="flex items-center"><i data-lucide="check-check" class="sidebar-icon"></i>อนุมัติเอกสาร</div><span id="approval-badge" class="hidden bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center"></span></a></li>`;
+                menuHtml += `<li><a href="#" class="menu-item flex items-center justify-between px-6 py-3 text-cyan-100 hover:bg-cyan-700 hover:text-white" data-page="approveDoc"><div class="flex items-center"><i data-lucide="check-check" class="sidebar-icon"></i>อนุมัติเอกสาร</div><div id="approval-badges" class="flex gap-1 items-center"></div></a></li>`;
             }
              menuHtml += `
                 <li><a href="#" class="menu-item flex items-center px-6 py-3 text-cyan-100 hover:bg-cyan-700 hover:text-white" data-page="shippingTracking"><i data-lucide="truck" class="sidebar-icon"></i>ติดตามการจัดส่ง</a></li>
@@ -4559,4 +4570,3 @@ async function showShippingTimeline(docId) {
     </script>
 </body>
 </html>
-
