@@ -847,6 +847,12 @@
                         </div>
                     </div>
 
+                <!-- Public Receive Page -->
+                <div id="page-receive-doc-public" class="page hidden bg-gray-50 min-h-screen py-8">
+                    <div class="max-w-md mx-auto card p-6 shadow-lg bg-white rounded-xl border border-gray-100">
+                        <div id="public-receive-container"></div>
+                        <input type="file" id="public-receipt-camera-input" accept="image/*" capture="environment" class="hidden">
+                    </div>
                 </div>
 
             </div>
@@ -943,6 +949,7 @@
             download: document.getElementById('page-download'),
             shippingTracking: document.getElementById('page-shipping-tracking'),
             settings: document.getElementById('page-settings'),
+            receiveDocPublic: document.getElementById('page-receive-doc-public'),
         };
         const sidebar = document.getElementById('sidebar');
         const mainContent = document.querySelector('main');
@@ -3175,6 +3182,15 @@ confirmReceipt('${doc.DocID}')">
                         </button>`;
                 }
 
+                let qrButtonHtml = '';
+                if (shippingStatus !== 'ได้รับแล้ว') {
+                    qrButtonHtml = `
+                        <button class="btn btn-secondary w-full md:w-auto border-gray-300 text-gray-700 hover:bg-gray-100" onclick="event.stopPropagation(); printReceiptQRCode('${doc.DocID}')">
+                            <i data-lucide="qr-code" class="w-4 h-4 text-gray-500"></i>
+                            <span>พิมพ์ QR รับของ</span>
+                        </button>`;
+                }
+
                 let timestampHtml = '';
                 if (shippingStatus === 'ได้รับแล้ว' && doc.ReceivedTimestamp) {
                     timestampHtml = `<p class="text-xs text-gray-500 mt-1">ได้รับเมื่อ: ${formatDateTime(doc.ReceivedTimestamp)}</p>`;
@@ -3232,7 +3248,8 @@ confirmReceipt('${doc.DocID}')">
                             </div>
                         </div>
 
-                        <div class="flex-shrink-0 mt-2 md:mt-0">
+                        <div class="flex-shrink-0 mt-2 md:mt-0 flex flex-col md:flex-row gap-2">
+                            ${qrButtonHtml}
                             ${updateButtonHtml}
                         </div>
                     </div>
@@ -3482,6 +3499,344 @@ async function showShippingTimeline(docId) {
                     }
                 });
             }
+        }
+
+        function printReceiptQRCode(docId) {
+            const origin = window.location.origin + window.location.pathname;
+            const publicUrl = `${origin}?page=receiveDocPublic&docId=${docId}`;
+            const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(publicUrl)}`;
+            
+            const printWindow = window.open('', '_blank', 'width=600,height=600');
+            printWindow.document.write(`
+                <html>
+                <head>
+                    <title>พิมพ์ QR Code สำหรับรับของ - ${docId}</title>
+                    <style>
+                        body {
+                            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                            text-align: center;
+                            padding: 40px;
+                            color: #1f2937;
+                            background-color: #f9fafb;
+                        }
+                        .container {
+                            border: 2px dashed #d1d5db;
+                            padding: 40px 30px;
+                            border-radius: 12px;
+                            display: inline-block;
+                            background-color: white;
+                            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+                        }
+                        h1 {
+                            font-size: 22px;
+                            margin-bottom: 8px;
+                            color: #111827;
+                        }
+                        h2 {
+                            font-size: 16px;
+                            color: #0284c7;
+                            margin-top: 0;
+                            font-family: monospace;
+                        }
+                        .qr-code {
+                            margin: 24px 0;
+                            border: 1px solid #e5e7eb;
+                            padding: 8px;
+                            border-radius: 8px;
+                            background: white;
+                        }
+                        .instruction {
+                            font-size: 13px;
+                            color: #4b5563;
+                            max-width: 320px;
+                            margin: 0 auto;
+                            line-height: 1.6;
+                        }
+                        @media print {
+                            .no-print { display: none; }
+                            body { background-color: white; padding: 0; }
+                            .container { border: none; box-shadow: none; padding: 20px; }
+                        }
+                        .print-btn {
+                            background-color: #0284c7;
+                            color: white;
+                            padding: 8px 24px;
+                            border: none;
+                            border-radius: 6px;
+                            font-size: 14px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            margin-top: 24px;
+                            transition: background-color 0.2s;
+                        }
+                        .print-btn:hover {
+                            background-color: #0369a1;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>สแกนเพื่อรับสินค้า</h1>
+                        <h2>เลขที่เอกสาร: ${docId}</h2>
+                        <img class="qr-code" src="${qrImageUrl}" alt="QR Code" width="250" height="250" />
+                        <p class="instruction">สแกน QR Code นี้ด้วยกล้องมือถือ เพื่อเข้าสู่หน้ารับสินค้า ถ่ายรูป และยืนยันการรับอะไหล่ โดยไม่ต้องลงชื่อเข้าใช้ระบบ</p>
+                        <button class="print-btn no-print" onclick="window.print()">พิมพ์เอกสารนี้</button>
+                    </div>
+                </body>
+                </html>
+            `);
+            printWindow.document.close();
+        }
+
+
+        let publicReceiptImageBase64 = null; // Store base64 of captured photo
+
+        function load_receiveDocPublic(params) {
+            const container = document.getElementById('public-receive-container');
+            if (!params || !params.docId) {
+                container.innerHTML = '<div class="text-center text-red-500 font-semibold p-4">ผิดพลาด: ไม่พบเลขที่เอกสาร</div>';
+                return;
+            }
+
+            container.innerHTML = '<div class="text-center text-gray-500 p-4">กำลังดึงข้อมูลเอกสาร...</div>';
+            publicReceiptImageBase64 = null;
+
+            apiCall('getDocumentDetails', { docId: params.docId }).then(data => {
+                if (!data || !data.document) {
+                    container.innerHTML = '<div class="text-center text-red-500 font-semibold p-4">ผิดพลาด: ไม่พบข้อมูลเอกสารนี้ในระบบ</div>';
+                    return;
+                }
+                renderPublicReceivePage(data.document);
+            }).catch(err => {
+                console.error(err);
+                container.innerHTML = '<div class="text-center text-red-500 font-semibold p-4">เกิดข้อผิดพลาดในการโหลดข้อมูล</div>';
+            });
+        }
+
+        function renderPublicReceivePage(doc) {
+            const container = document.getElementById('public-receive-container');
+            const shippingStatus = doc.ShippingStatus || 'รอจัดส่ง';
+            const isReceived = shippingStatus === 'ได้รับแล้ว';
+
+            // Extract items JSON
+            let items = [];
+            try {
+                items = typeof doc.ItemsJSON === 'string' ? JSON.parse(doc.ItemsJSON) : (doc.Items || doc.items || []);
+            } catch (e) {
+                items = [];
+            }
+
+            const itemsRowsHtml = items.map(item => `
+                <tr class="border-b text-sm">
+                    <td class="py-2 text-gray-800 font-medium">${item.name}</td>
+                    <td class="py-2 text-center text-gray-600 font-mono">${item.code}</td>
+                    <td class="py-2 text-right text-gray-800 font-semibold">${item.qty} ชิ้น</td>
+                </tr>
+            `).join('');
+
+            // Status style & badge
+            const statusStyles = {
+                'รอจัดส่ง': 'bg-gray-100 text-gray-800',
+                'กำลังจัดส่ง': 'bg-blue-100 text-blue-800',
+                'จัดส่งแล้ว': 'bg-yellow-100 text-yellow-800',
+                'ได้รับแล้ว': 'bg-green-100 text-green-800',
+            };
+            const statusBadge = `
+                <span class="px-3 py-1 rounded-full text-xs font-bold ${statusStyles[shippingStatus] || 'bg-gray-100'}">
+                    ${shippingStatus}
+                </span>`;
+
+            let receiptActionHtml = '';
+            if (isReceived) {
+                receiptActionHtml = `
+                    <div class="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg text-center">
+                        <i data-lucide="check-circle-2" class="w-12 h-12 text-green-500 mx-auto mb-2"></i>
+                        <p class="text-green-800 font-semibold">ได้รับสินค้าเรียบร้อยแล้ว</p>
+                        <p class="text-xs text-green-600 mt-1">ได้รับเมื่อ: ${formatDateTime(doc.ReceivedTimestamp)}</p>
+                    </div>`;
+            } else {
+                receiptActionHtml = `
+                    <div class="mt-6 border-t pt-6 space-y-4">
+                        <h3 class="text-base font-bold text-gray-800">📷 ถ่ายภาพเพื่อยืนยันการรับสินค้า</h3>
+                        <p class="text-xs text-gray-500">กรุณาถ่ายภาพสินค้าที่ได้รับเพื่อความถูกต้องในการส่งมอบ</p>
+                        
+                        <div id="public-photo-preview-box" class="hidden w-full aspect-video rounded-lg border border-gray-200 bg-gray-50 overflow-hidden relative">
+                            <img id="public-photo-preview-img" class="w-full h-full object-cover" src="" alt="Preview">
+                        </div>
+
+                        <div class="flex flex-col gap-3">
+                            <button id="public-capture-btn" class="btn btn-secondary w-full flex items-center justify-center gap-2">
+                                <i data-lucide="camera" class="w-5 h-5"></i>
+                                <span>ถ่ายรูปสินค้า / เลือกรูป</span>
+                            </button>
+                            <button id="public-submit-btn" disabled class="btn btn-primary bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed w-full flex items-center justify-center gap-2">
+                                <i data-lucide="package-check" class="w-5 h-5"></i>
+                                <span>ยืนยันการรับสินค้า</span>
+                            </button>
+                        </div>
+                    </div>`;
+            }
+
+            container.innerHTML = `
+                <div class="space-y-6">
+                    <div class="text-center border-b pb-4">
+                        <h2 class="text-xl font-extrabold text-gray-900">ยืนยันการรับอะไหล่</h2>
+                        <p class="text-xs text-gray-400 mt-1 font-mono">${doc.DocID}</p>
+                    </div>
+
+                    <!-- Details Card -->
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">สถานะจัดส่ง:</span>
+                            ${statusBadge}
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">ลูกค้า:</span>
+                            <span class="font-semibold text-gray-800">${doc.CustomerName}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">ผู้ส่งคำขอ:</span>
+                            <span class="text-gray-800">${doc.RequesterName}</span>
+                        </div>
+                        ${doc.TrackingNumber ? `
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">เลขพัสดุ:</span>
+                            <span class="font-mono text-gray-800">${doc.TrackingNumber}</span>
+                        </div>` : ''}
+                    </div>
+
+                    <!-- Parts List -->
+                    <div class="border rounded-lg p-3 bg-gray-50/50">
+                        <h3 class="text-sm font-bold text-gray-700 mb-2 border-b pb-1">รายการอะไหล่</h3>
+                        <table class="w-full">
+                            <thead>
+                                <tr class="text-xs text-gray-400 border-b text-left">
+                                    <th class="pb-1 font-normal">ชื่ออะไหล่</th>
+                                    <th class="pb-1 font-normal text-center">รหัส</th>
+                                    <th class="pb-1 font-normal text-right">จำนวน</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${itemsRowsHtml}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Actions -->
+                    ${receiptActionHtml}
+                </div>
+            `;
+
+            renderIcons();
+
+            // Setup listeners for public receipt action buttons if not received
+            if (!isReceived) {
+                const cameraInput = document.getElementById('public-receipt-camera-input');
+                const captureBtn = document.getElementById('public-capture-btn');
+                const submitBtn = document.getElementById('public-submit-btn');
+                const previewBox = document.getElementById('public-photo-preview-box');
+                const previewImg = document.getElementById('public-photo-preview-img');
+
+                captureBtn.addEventListener('click', () => {
+                    cameraInput.click();
+                });
+
+                cameraInput.onchange = async (e) => {
+                    if (e.target.files && e.target.files[0]) {
+                        showLoading('กำลังประมวลผลรูปภาพ...');
+                        try {
+                            const file = e.target.files[0];
+                            const base64 = await compressImage(file, 800, 800, 0.7);
+                            publicReceiptImageBase64 = base64;
+                            
+                            previewImg.src = base64;
+                            previewBox.classList.remove('hidden');
+                            submitBtn.removeAttribute('disabled');
+                            hideLoading();
+                        } catch (err) {
+                            console.error(err);
+                            hideLoading();
+                            Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถอ่านหรือบีบอัดรูปภาพได้', 'error');
+                        }
+                    }
+                };
+
+                submitBtn.addEventListener('click', () => {
+                    if (!publicReceiptImageBase64) return;
+                    
+                    Swal.fire({
+                        title: 'ยืนยันการรับของ',
+                        text: 'คุณถ่ายรูปสินค้าครบถ้วนและยืนยันการรับสินค้าใช่หรือไม่?',
+                        icon: 'question',
+                        showCancelButton: true,
+                        confirmButtonText: 'ยืนยัน',
+                        cancelButtonText: 'ยกเลิก',
+                        confirmButtonColor: '#16a34a'
+                    }).then(res => {
+                        if (res.isConfirmed) {
+                            showLoading('กำลังบันทึกข้อมูลการรับของ...');
+                            
+                            apiCall('updateShippingStatus', {
+                                docId: doc.DocID,
+                                shippingStatus: 'ได้รับแล้ว',
+                                updaterEmail: doc.RequesterEmail, // Attribute receipt to the original requester
+                                images: [publicReceiptImageBase64]
+                            }).then(resp => {
+                                hideLoading();
+                                if (resp) {
+                                    Swal.fire('สำเร็จ', 'บันทึกข้อมูลการรับของเรียบร้อยแล้ว', 'success').then(() => {
+                                        load_receiveDocPublic({ docId: doc.DocID }); // Reload public page view to show green checkmark
+                                    });
+                                } else {
+                                    Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถบันทึกข้อมูลการรับสินค้าได้', 'error');
+                                }
+                            }).catch(err => {
+                                console.error(err);
+                                hideLoading();
+                                Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้', 'error');
+                            });
+                        }
+                    });
+                });
+            }
+        }
+
+        function compressImage(file, maxWidth = 800, maxHeight = 800, quality = 0.7) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = event => {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        let width = img.width;
+                        let height = img.height;
+
+                        if (width > height) {
+                            if (width > maxWidth) {
+                                height = Math.round((height * maxWidth) / width);
+                                width = maxWidth;
+                            }
+                        } else {
+                            if (height > maxHeight) {
+                                width = Math.round((width * maxHeight) / height);
+                                height = maxHeight;
+                            }
+                        }
+
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+                        resolve(dataUrl);
+                    };
+                    img.onerror = err => reject(err);
+                };
+                reader.onerror = err => reject(err);
+            });
         }
 
 
@@ -4580,14 +4935,24 @@ async function showShippingTimeline(docId) {
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            const savedUser = localStorage.getItem('tscUser');
-            if (savedUser) {
-                currentUser = JSON.parse(savedUser);
-                initializeApp();
-            } else {
+            const urlParams = new URLSearchParams(window.location.search);
+            const pageParam = urlParams.get('page');
+            const docIdParam = urlParams.get('docId');
+
+            if (pageParam === 'receiveDocPublic' && docIdParam) {
                 document.querySelector('header').classList.add('md:hidden');
                 sidebar.classList.add('hidden');
-                showPage('login');
+                showPage('receiveDocPublic', { docId: docIdParam });
+            } else {
+                const savedUser = localStorage.getItem('tscUser');
+                if (savedUser) {
+                    currentUser = JSON.parse(savedUser);
+                    initializeApp();
+                } else {
+                    document.querySelector('header').classList.add('md:hidden');
+                    sidebar.classList.add('hidden');
+                    showPage('login');
+                }
             }
 
             // --- EVENT LISTENERS ---
