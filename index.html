@@ -2129,7 +2129,7 @@
          * @param {string} pageId - The ID of the page to show.
          * @param {object} params - Optional parameters to pass to the page load function.
          */
-        function showPage(pageId, params = null) {
+        function showPage(pageId, params) {
             if (currentPage === 'dashboard' && pageId !== 'dashboard') {
                 clearInterval(dashboardTimerInterval);
                 dashboardTimerInterval = null;
