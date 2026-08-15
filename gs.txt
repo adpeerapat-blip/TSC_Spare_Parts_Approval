@@ -17,7 +17,7 @@ let partsSheet = ss.getSheetByName("Parts");
 const usersHeaders = ["UserID", "Name", "Email", "Phone", "PasswordHash", "Salt", "Role", "ApprovalLevel", "SignatureLink", "CreatedAt"];
 const docsHeaders = ["DocID", "CreatedAt", "RequesterEmail", "RequesterName", "Status", "Type", "CustomerType", "RepairRequestNo", "CustomerName", "DefectSymptom", "MachineModel", "SerialNumber", "DishFeederModel", "FeederSerialNumber", "Technician", "RequesterNotes", "ItemsJSON", "TotalPrice", "RequesterSignatureLink", "Approver1Email", "Approver1Decision", "Approver1Notes", "Approver1Timestamp", "Approver1SignatureLink", "Approver2Email", "Approver2Decision", "Approver2Notes", "Approver2Timestamp", "Approver2SignatureLink", "ShippingStatus", "TrackingNumber", "InTransitTimestamp", "ShippedOutTimestamp", "ReceivedTimestamp", "ShipmentNotes", "ShipmentImagesJSON", "PdfLink"];
 const settingsHeaders = ["SettingName", "Value"];
-const partsHeaders = ["PartCode", "PartName", "Price"];
+const partsHeaders = ["StockGroup", "PartCode", "PartName", "Price", "Unit", "Location"];
 
 // Helper to encode/decode emails for Firebase keys (dots are forbidden in keys)
 function encodeEmail(email) {

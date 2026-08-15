@@ -799,7 +799,12 @@
                             <span>กลับ</span>
                         </button>
                         <div class="card">
-                            <h2 class="text-xl font-semibold mb-4 flex items-center gap-2"><i data-lucide="users"></i>ตั้งค่าสิทธิ์ผู้ใช้</h2>
+                            <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
+                                <h2 class="text-xl font-semibold flex items-center gap-2"><i data-lucide="users"></i>ตั้งค่าสิทธิ์ผู้ใช้</h2>
+                                <div class="flex items-center gap-2 w-full md:w-auto">
+                                    <input type="text" id="user-search-input" class="form-input w-full md:w-64" placeholder="ค้นหาด้วยชื่อหรืออีเมล...">
+                                </div>
+                            </div>
                             <div id="user-list-admin" class="overflow-x-auto"></div>
                         </div>
                     </div>
@@ -820,7 +825,12 @@
                                 </button>
                             </form>
                             <hr class="my-6">
-                            <h2 class="text-xl font-semibold mb-4 flex items-center gap-2"><i data-lucide="user-check"></i>ตั้งค่าสิทธิ์ผู้อนุมัติ</h2>
+                            <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
+                                <h2 class="text-xl font-semibold flex items-center gap-2"><i data-lucide="user-check"></i>ตั้งค่าสิทธิ์ผู้อนุมัติ</h2>
+                                <div class="flex items-center gap-2 w-full md:w-auto">
+                                    <input type="text" id="approver-search-input" class="form-input w-full md:w-64" placeholder="ค้นหาด้วยชื่อหรืออีเมล...">
+                                </div>
+                            </div>
                             <div id="approver-list-admin" class="overflow-x-auto"></div>
                         </div>
                     </div>
@@ -844,6 +854,9 @@
                             </div>
                             <div id="parts-list-admin" class="overflow-x-auto">
                                 <!-- Table will be injected here -->
+                            </div>
+                            <div id="parts-pagination-container">
+                                <!-- Pagination controls will be injected here -->
                             </div>
                         </div>
                     </div>
@@ -929,6 +942,10 @@
         let downloadableDocs = []; // For download page search
         let approveDocPage = 1;
         let allParts = []; // For parts management
+        let partsCurrentPage = 1; // Current page for parts management
+        const partsPageSize = 20; // Page size for parts management
+        let allUsersSettings = []; // For user permissions management
+        let allApproversSettings = []; // For approver settings management
         let shippingDocs = []; // For shipping tracking
         let approvalDocs = []; // For approval page filtering
         let realTimeListeners = {}; // Real-time listeners storage
@@ -1870,7 +1887,7 @@
                         break;
                     }
                     case 'addPart': {
-                        const { code, name, price } = payload;
+                        const { code, name, price, unit, location, stockGroup } = payload;
                         const checkRes = await fetch(`${FIREBASE_DB_URL}/Parts/${code}.json`);
                         const existingPart = await checkRes.json();
                         if (existingPart) {
@@ -1879,13 +1896,13 @@
                         await fetch(`${FIREBASE_DB_URL}/Parts/${code}.json`, {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ PartCode: code, PartName: name, Price: price })
+                            body: JSON.stringify({ StockGroup: stockGroup, PartCode: code, PartName: name, Price: price, Unit: unit, Location: location })
                         });
                         resultData = { success: true, message: "เพิ่มอะไหล่สำเร็จ" };
                         break;
                     }
                     case 'updatePart': {
-                        const { originalCode, newCode, newName, newPrice } = payload;
+                        const { originalCode, newCode, newName, newPrice, newUnit, newLocation, newStockGroup } = payload;
                         if (originalCode !== newCode) {
                             const checkRes = await fetch(`${FIREBASE_DB_URL}/Parts/${newCode}.json`);
                             const existingPart = await checkRes.json();
@@ -1897,7 +1914,7 @@
                         await fetch(`${FIREBASE_DB_URL}/Parts/${newCode}.json`, {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ PartCode: newCode, PartName: newName, Price: newPrice })
+                            body: JSON.stringify({ StockGroup: newStockGroup, PartCode: newCode, PartName: newName, Price: newPrice, Unit: newUnit, Location: newLocation })
                         });
                         resultData = { success: true, message: "อัปเดตข้อมูลอะไหล่สำเร็จ" };
                         break;
@@ -3769,43 +3786,59 @@ async function showShippingTimeline(docId) {
         function loadAdminUserSettings() {
             apiCall('getUsers').then(data => {
                 if(data && data.users) {
-                    const userListContainer = document.getElementById('user-list-admin');
-                    const tableRows = data.users.map(user => {
-                        const isCurrentUser = user.Email === currentUser.email;
-                        return `
-                        <tr class="border-b ${isCurrentUser ? 'bg-blue-50' : ''}">
-                            <td class="p-3">${user.Name}</td>
-                            <td class="p-3">${user.Email}</td>
-                            <td class="p-3">${user.Role}</td>
-                            <td class="p-3 flex gap-2">
-                                <button class="btn btn-secondary btn-sm" onclick="editUserRole('${user.Email}', '${user.Role}')" ${isCurrentUser ? 'disabled' : ''}>
-                                    <i data-lucide="edit-3" class="w-4 h-4"></i> แก้ไขสิทธิ์
-                                </button>
-                                <button class="btn btn-danger-secondary btn-sm" onclick="deleteUser('${user.Email}')" ${isCurrentUser ? 'disabled' : ''}>
-                                    <i data-lucide="trash-2" class="w-4 h-4"></i> ลบ
-                                </button>
-                            </td>
-                        </tr>
-                    `}).join('');
-
-                    userListContainer.innerHTML = `
-                        <table class="w-full text-left">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="p-3">ชื่อ-สกุล</th>
-                                    <th class="p-3">อีเมล</th>
-                                    <th class="p-3">สิทธิ์ปัจจุบัน</th>
-                                    <th class="p-3">จัดการ</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${tableRows}
-                            </tbody>
-                        </table>
-                    `;
-                    renderIcons();
+                    allUsersSettings = data.users;
+                    const searchInput = document.getElementById('user-search-input');
+                    const query = searchInput ? searchInput.value : '';
+                    renderUserPermissionsTable(query);
                 }
             });
+        }
+
+        function renderUserPermissionsTable(searchQuery = '') {
+            const userListContainer = document.getElementById('user-list-admin');
+            if (!userListContainer) return;
+
+            const query = searchQuery.trim().toLowerCase();
+            const filteredUsers = allUsersSettings.filter(user => {
+                const name = (user.Name || '').toLowerCase();
+                const email = (user.Email || '').toLowerCase();
+                return name.includes(query) || email.includes(query);
+            });
+
+            const tableRows = filteredUsers.map(user => {
+                const isCurrentUser = user.Email === currentUser.email;
+                return `
+                <tr class="border-b ${isCurrentUser ? 'bg-blue-50' : ''}">
+                    <td class="p-3">${user.Name}</td>
+                    <td class="p-3">${user.Email}</td>
+                    <td class="p-3">${user.Role}</td>
+                    <td class="p-3 flex gap-2">
+                        <button class="btn btn-secondary btn-sm" onclick="editUserRole('${user.Email}', '${user.Role}')" ${isCurrentUser ? 'disabled' : ''}>
+                            <i data-lucide="edit-3" class="w-4 h-4"></i> แก้ไขสิทธิ์
+                        </button>
+                        <button class="btn btn-danger-secondary btn-sm" onclick="deleteUser('${user.Email}')" ${isCurrentUser ? 'disabled' : ''}>
+                            <i data-lucide="trash-2" class="w-4 h-4"></i> ลบ
+                        </button>
+                    </td>
+                </tr>
+            `}).join('');
+
+            userListContainer.innerHTML = `
+                <table class="w-full text-left">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="p-3">ชื่อ-สกุล</th>
+                            <th class="p-3">อีเมล</th>
+                            <th class="p-3">สิทธิ์ปัจจุบัน</th>
+                            <th class="p-3">จัดการ</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${filteredUsers.length > 0 ? tableRows : `<tr><td colspan="4" class="p-3 text-center text-gray-500">ไม่พบผู้ใช้ที่ค้นหา</td></tr>`}
+                    </tbody>
+                </table>
+            `;
+            renderIcons();
         }
 
         async function editUserRole(email, currentRole) {
@@ -3864,40 +3897,56 @@ async function showShippingTimeline(docId) {
 
             apiCall('getUsers').then(data => {
                 if (data && data.users) {
-                    const approverListContainer = document.getElementById('approver-list-admin');
-                    const tableRows = data.users.map(user => {
-                        const isCurrentUser = user.Email === currentUser.email;
-                        return `
-                        <tr class="border-b ${isCurrentUser ? 'bg-blue-50' : ''}">
-                            <td class="p-3">${user.Name}</td>
-                            <td class="p-3">${user.Email}</td>
-                            <td class="p-3">${user.ApprovalLevel || 'ไม่มีสิทธิ์'}</td>
-                            <td class="p-3">
-                                <button class="btn btn-secondary btn-sm" onclick="editUserApproval('${user.Email}', '${user.ApprovalLevel || ''}')">
-                                    <i data-lucide="edit-3" class="w-4 h-4"></i> แก้ไขสิทธิ์
-                                </button>
-                            </td>
-                        </tr>
-                    `}).join('');
-
-                    approverListContainer.innerHTML = `
-                        <table class="w-full text-left">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="p-3">ชื่อ-สกุล</th>
-                                    <th class="p-3">อีเมล</th>
-                                    <th class="p-3">ระดับการอนุมัติ</th>
-                                    <th class="p-3">จัดการ</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${tableRows}
-                            </tbody>
-                        </table>
-                    `;
-                    renderIcons();
+                    allApproversSettings = data.users;
+                    const searchInput = document.getElementById('approver-search-input');
+                    const query = searchInput ? searchInput.value : '';
+                    renderApproverSettingsTable(query);
                 }
             });
+        }
+
+        function renderApproverSettingsTable(searchQuery = '') {
+            const approverListContainer = document.getElementById('approver-list-admin');
+            if (!approverListContainer) return;
+
+            const query = searchQuery.trim().toLowerCase();
+            const filteredUsers = allApproversSettings.filter(user => {
+                const name = (user.Name || '').toLowerCase();
+                const email = (user.Email || '').toLowerCase();
+                return name.includes(query) || email.includes(query);
+            });
+
+            const tableRows = filteredUsers.map(user => {
+                const isCurrentUser = user.Email === currentUser.email;
+                return `
+                <tr class="border-b ${isCurrentUser ? 'bg-blue-50' : ''}">
+                    <td class="p-3">${user.Name}</td>
+                    <td class="p-3">${user.Email}</td>
+                    <td class="p-3">${user.ApprovalLevel || 'ไม่มีสิทธิ์'}</td>
+                    <td class="p-3">
+                        <button class="btn btn-secondary btn-sm" onclick="editUserApproval('${user.Email}', '${user.ApprovalLevel || ''}')">
+                            <i data-lucide="edit-3" class="w-4 h-4"></i> แก้ไขสิทธิ์
+                        </button>
+                    </td>
+                </tr>
+            `}).join('');
+
+            approverListContainer.innerHTML = `
+                <table class="w-full text-left">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="p-3">ชื่อ-สกุล</th>
+                            <th class="p-3">อีเมล</th>
+                            <th class="p-3">ระดับการอนุมัติ</th>
+                            <th class="p-3">จัดการ</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${filteredUsers.length > 0 ? tableRows : `<tr><td colspan="4" class="p-3 text-center text-gray-500">ไม่พบผู้ใช้ที่ค้นหา</td></tr>`}
+                    </tbody>
+                </table>
+            `;
+            renderIcons();
         }
 
         async function editUserApproval(email, currentLevel) {
@@ -3940,17 +3989,23 @@ async function showShippingTimeline(docId) {
             });
         }
 
-        function load_partsSettings() {
+        function load_partsSettings(resetPagination = false) {
+            if (resetPagination) {
+                partsCurrentPage = 1;
+            }
             apiCall('getParts').then(data => {
                 if (data && data.parts) {
                     allParts = data.parts;
-                    renderPartsTable();
+                    renderPartsTable(document.getElementById('parts-search-input').value);
                 }
             });
         }
 
         function renderPartsTable(searchTerm = '') {
             const container = document.getElementById('parts-list-admin');
+            const paginationContainer = document.getElementById('parts-pagination-container');
+            if (!container) return;
+
             const lowerCaseSearchTerm = searchTerm.toLowerCase();
 
             const filteredParts = allParts.filter(part => {
@@ -3962,17 +4017,36 @@ async function showShippingTimeline(docId) {
 
             if (filteredParts.length === 0) {
                 container.innerHTML = '<p class="text-center text-gray-500 p-4">ไม่พบรายการอะไหล่</p>';
+                if (paginationContainer) paginationContainer.innerHTML = '';
                 return;
             }
 
-            const tableRows = filteredParts.map(part => `
+            const totalPages = Math.ceil(filteredParts.length / partsPageSize);
+            if (partsCurrentPage > totalPages) {
+                partsCurrentPage = totalPages;
+            }
+            if (partsCurrentPage < 1) {
+                partsCurrentPage = 1;
+            }
+
+            const startIndex = (partsCurrentPage - 1) * partsPageSize;
+            const endIndex = startIndex + partsPageSize;
+            const displayedParts = filteredParts.slice(startIndex, endIndex);
+
+            const tableRows = displayedParts.map((part, index) => {
+                const globalIndex = startIndex + index + 1;
+                return `
                 <tr class="border-b">
+                    <td class="p-3">${globalIndex}</td>
+                    <td class="p-3">${part.StockGroup || ''}</td>
                     <td class="p-3">${part.PartCode}</td>
                     <td class="p-3">${part.PartName}</td>
+                    <td class="p-3">${part.Unit || ''}</td>
                     <td class="p-3 text-right">${parseFloat(part.Price || 0).toFixed(2)}</td>
+                    <td class="p-3">${part.Location || ''}</td>
                     <td class="p-3 text-right">
                         <div class="flex gap-2 justify-end">
-                            <button class="btn btn-secondary btn-sm edit-part-btn" data-code="${escapeHtml(part.PartCode)}" data-name="${escapeHtml(part.PartName)}" data-price="${part.Price}">
+                            <button class="btn btn-secondary btn-sm edit-part-btn" data-code="${escapeHtml(part.PartCode)}" data-name="${escapeHtml(part.PartName)}" data-price="${part.Price}" data-unit="${escapeHtml(part.Unit || '')}" data-location="${escapeHtml(part.Location || '')}" data-stock-group="${escapeHtml(part.StockGroup || '')}">
                                 <i data-lucide="edit-3" class="w-4 h-4"></i>
                             </button>
                             <button class="btn btn-danger-secondary btn-sm delete-part-btn" data-code="${escapeHtml(part.PartCode)}">
@@ -3981,15 +4055,19 @@ async function showShippingTimeline(docId) {
                         </div>
                     </td>
                 </tr>
-            `).join('');
+            `}).join('');
 
             container.innerHTML = `
                 <table class="w-full text-left">
                     <thead class="bg-gray-50">
                         <tr>
+                            <th class="p-3">ลำดับ</th>
+                            <th class="p-3">Stock Group</th>
                             <th class="p-3">รหัสอะไหล่</th>
                             <th class="p-3">ชื่ออะไหล่</th>
-                            <th class="p-3 text-right">ราคา/ชิ้น</th>
+                            <th class="p-3">หน่วยนับ</th>
+                            <th class="p-3 text-right">ราคาต่อหน่วย</th>
+                            <th class="p-3">Location</th>
                             <th class="p-3 text-right">จัดการ</th>
                         </tr>
                     </thead>
@@ -3998,29 +4076,54 @@ async function showShippingTimeline(docId) {
                     </tbody>
                 </table>
             `;
+
+            if (paginationContainer) {
+                if (totalPages > 1) {
+                    paginationContainer.innerHTML = `
+                        <div class="flex justify-center items-center gap-4 mt-6">
+                            <button ${partsCurrentPage === 1 ? 'disabled' : ''} onclick="changePartsPage(${partsCurrentPage - 1})" class="btn-pagination"><<</button>
+                            <span class="text-sm text-gray-600">หน้า ${partsCurrentPage} / ${totalPages}</span>
+                            <button ${partsCurrentPage === totalPages ? 'disabled' : ''} onclick="changePartsPage(${partsCurrentPage + 1})" class="btn-pagination">>></button>
+                        </div>
+                    `;
+                } else {
+                    paginationContainer.innerHTML = '';
+                }
+            }
             renderIcons();
+        }
+
+        function changePartsPage(newPage) {
+            partsCurrentPage = newPage;
+            renderPartsTable(document.getElementById('parts-search-input').value);
         }
 
         async function handleAddPart() {
             const { value: formValues } = await Swal.fire({
                 title: 'เพิ่มรายการอะไหล่ใหม่',
                 html:
+                    '<input id="swal-part-stock-group" class="swal2-input" placeholder="Stock Group">' +
                     '<input id="swal-part-code" class="swal2-input" placeholder="รหัสอะไหล่">' +
                     '<input id="swal-part-name" class="swal2-input" placeholder="ชื่ออะไหล่">' +
-                    '<input id="swal-part-price" type="number" step="0.01" class="swal2-input" placeholder="ราคา">',
+                    '<input id="swal-part-unit" class="swal2-input" placeholder="หน่วยนับ">' +
+                    '<input id="swal-part-price" type="number" step="0.01" class="swal2-input" placeholder="ราคาต่อหน่วย">' +
+                    '<input id="swal-part-location" class="swal2-input" placeholder="Location">',
                 focusConfirm: false,
                 showCancelButton: true,
                 confirmButtonText: 'บันทึก',
                 cancelButtonText: 'ยกเลิก',
                 preConfirm: () => {
+                    const stockGroup = document.getElementById('swal-part-stock-group').value;
                     const code = document.getElementById('swal-part-code').value;
                     const name = document.getElementById('swal-part-name').value;
+                    const unit = document.getElementById('swal-part-unit').value;
                     const price = document.getElementById('swal-part-price').value;
-                    if (!code || !name || !price) {
-                        Swal.showValidationMessage('กรุณากรอกข้อมูลให้ครบถ้วน');
+                    const location = document.getElementById('swal-part-location').value;
+                    if (!code || !name || !unit || !price) {
+                        Swal.showValidationMessage('กรุณากรอกรหัสอะไหล่ ชื่ออะไหล่ หน่วยนับ และราคาต่อหน่วย');
                         return false;
                     }
-                    return { code, name, price: parseFloat(price) };
+                    return { stockGroup, code, name, price: parseFloat(price), unit, location };
                 }
             });
 
@@ -4034,27 +4137,33 @@ async function showShippingTimeline(docId) {
             }
         }
 
-        async function handleEditPart(originalCode, currentName, currentPrice) {
+        async function handleEditPart(originalCode, currentName, currentPrice, currentUnit = '', currentLocation = '', currentStockGroup = '') {
             const { value: formValues } = await Swal.fire({
                 title: 'แก้ไขรายการอะไหล่',
                 html: `
-                    <input id="swal-part-code" class="swal2-input" value="${escapeHtml(originalCode)}" placeholder="รหัสอะไหล่">
+                    <input id="swal-part-stock-group" class="swal2-input" value="${escapeHtml(currentStockGroup)}" placeholder="Stock Group">
+                    <input id="swal-part-code" class="swal2-input" value="${escapeHtml(originalCode)}" placeholder="รหัสอะไหล่" disabled>
                     <input id="swal-part-name" class="swal2-input" value="${escapeHtml(currentName)}" placeholder="ชื่ออะไหล่">
-                    <input id="swal-part-price" type="number" step="0.01" class="swal2-input" value="${currentPrice}" placeholder="ราคา">
+                    <input id="swal-part-unit" class="swal2-input" value="${escapeHtml(currentUnit)}" placeholder="หน่วยนับ">
+                    <input id="swal-part-price" type="number" step="0.01" class="swal2-input" value="${currentPrice}" placeholder="ราคาต่อหน่วย">
+                    <input id="swal-part-location" class="swal2-input" value="${escapeHtml(currentLocation)}" placeholder="Location">
                 `,
                 focusConfirm: false,
                 showCancelButton: true,
                 confirmButtonText: 'บันทึก',
                 cancelButtonText: 'ยกเลิก',
                 preConfirm: () => {
+                    const newStockGroup = document.getElementById('swal-part-stock-group').value;
                     const newCode = document.getElementById('swal-part-code').value;
                     const newName = document.getElementById('swal-part-name').value;
+                    const newUnit = document.getElementById('swal-part-unit').value;
                     const newPrice = document.getElementById('swal-part-price').value;
-                     if (!newCode || !newName || !newPrice) {
-                        Swal.showValidationMessage('กรุณากรอกข้อมูลให้ครบถ้วน');
+                    const newLocation = document.getElementById('swal-part-location').value;
+                    if (!newCode || !newName || !newUnit || !newPrice) {
+                        Swal.showValidationMessage('กรุณากรอกรหัสอะไหล่ ชื่ออะไหล่ หน่วยนับ และราคาต่อหน่วย');
                         return false;
                     }
-                    return { originalCode, newCode, newName, newPrice: parseFloat(newPrice) };
+                    return { originalCode, newCode, newName, newPrice: parseFloat(newPrice), newUnit, newLocation, newStockGroup };
                 }
             });
 
@@ -4862,17 +4971,23 @@ async function showShippingTimeline(docId) {
             document.getElementById('card-user-permissions').addEventListener('click', () => {
                 document.getElementById('settings-menu').classList.add('hidden');
                 document.getElementById('user-permissions-container').classList.remove('hidden');
+                const searchInput = document.getElementById('user-search-input');
+                if (searchInput) searchInput.value = '';
                 loadAdminUserSettings();
             });
             document.getElementById('card-approver-settings').addEventListener('click', () => {
                 document.getElementById('settings-menu').classList.add('hidden');
                 document.getElementById('approver-settings-container').classList.remove('hidden');
+                const searchInput = document.getElementById('approver-search-input');
+                if (searchInput) searchInput.value = '';
                 loadApproverSettings();
             });
             document.getElementById('card-parts-settings').addEventListener('click', () => {
                 document.getElementById('settings-menu').classList.add('hidden');
                 document.getElementById('parts-settings-container').classList.remove('hidden');
-                load_partsSettings();
+                const searchInput = document.getElementById('parts-search-input');
+                if (searchInput) searchInput.value = '';
+                load_partsSettings(true);
             });
 
             document.querySelectorAll('.back-to-settings-menu').forEach(button => {
@@ -4886,14 +5001,23 @@ async function showShippingTimeline(docId) {
             });
             document.getElementById('upload-signature-input').addEventListener('change', handleUploadSignatureFile);
 
+            // --- User Permissions Search Listener ---
+            document.getElementById('user-search-input').addEventListener('input', (e) => renderUserPermissionsTable(e.target.value));
+
+            // --- Approver Settings Search Listener ---
+            document.getElementById('approver-search-input').addEventListener('input', (e) => renderApproverSettingsTable(e.target.value));
+
             // --- Parts Settings Listeners ---
             document.getElementById('add-part-modal-btn').addEventListener('click', handleAddPart);
-            document.getElementById('parts-search-input').addEventListener('input', (e) => renderPartsTable(e.target.value));
+            document.getElementById('parts-search-input').addEventListener('input', (e) => {
+                partsCurrentPage = 1;
+                renderPartsTable(e.target.value);
+            });
             document.getElementById('parts-list-admin').addEventListener('click', (e) => {
                 const editBtn = e.target.closest('.edit-part-btn');
                 if (editBtn) {
-                    const { code, name, price } = editBtn.dataset;
-                    handleEditPart(code, name, price);
+                    const { code, name, price, unit, location, stockGroup } = editBtn.dataset;
+                    handleEditPart(code, name, price, unit, location, stockGroup);
                     return;
                 }
                 const deleteBtn = e.target.closest('.delete-part-btn');
