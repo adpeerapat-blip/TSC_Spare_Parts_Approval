@@ -4968,6 +4968,18 @@ async function showShippingTimeline(docId) {
         }
 
         document.addEventListener('DOMContentLoaded', () => {
+            // Re-bind all page elements to ensure they are captured after full DOM load
+            pages.login = document.getElementById('page-login');
+            pages.register = document.getElementById('page-register');
+            pages.dashboard = document.getElementById('page-dashboard');
+            pages.createDoc = document.getElementById('page-create-doc');
+            pages.editDoc = document.getElementById('page-edit-doc');
+            pages.approveDoc = document.getElementById('page-approve-doc');
+            pages.download = document.getElementById('page-download');
+            pages.shippingTracking = document.getElementById('page-shipping-tracking');
+            pages.settings = document.getElementById('page-settings');
+            pages.receiveDocPublic = document.getElementById('page-receive-doc-public');
+
             const urlParams = new URLSearchParams(window.location.search);
             const pageParam = urlParams.get('page');
             const docIdParam = urlParams.get('docId');
