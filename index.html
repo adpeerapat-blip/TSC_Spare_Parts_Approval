@@ -348,7 +348,7 @@
                             </div>
                         </div>
                     </div>
-                    <div id="dashboard-stats" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <div id="dashboard-stats" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
                         <!-- Stats cards will be injected here -->
                     </div>
                     <div id="dashboard-table-pending"></div>
@@ -375,6 +375,7 @@
                             <i data-lucide="edit" class="w-16 h-16 mx-auto text-green-500 mb-4"></i>
                             <h2 class="text-2xl font-semibold">จัดการเอกสาร</h2>
                             <p class="text-gray-500 mt-2">แก้ไขหรือลบเอกสารที่ยังไม่ได้รับการอนุมัติ</p>
+                            <p id="card-edit-doc-count" class="text-xs text-gray-500 mt-2">กำลังตรวจสอบเอกสาร...</p>
                         </div>
                     </div>
 
@@ -521,24 +522,6 @@
                     </div>
 
                     <div class="card mb-8">
-                        <h2 class="text-xl font-semibold text-gray-700 mb-4">รายการรออนุมัติ</h2>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="p-3">วันที่ขออนุมัติ</th>
-                                        <th class="p-3">เลขที่เอกสาร</th>
-                                        <th class="p-3">ชื่อลูกค้า</th>
-                                        <th class="p-3">สถานะ</th>
-                                        <th class="p-3">จัดการ</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="pending-doc-table-body"></tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <div class="card">
                         <h2 class="text-xl font-semibold text-gray-700 mb-4">รายการที่ถูกตีกลับ</h2>
                         <div class="overflow-x-auto">
                             <table class="w-full text-left">
@@ -556,6 +539,26 @@
                                 <tbody id="returned-doc-table-body"></tbody>
                             </table>
                         </div>
+                        <div id="returned-pagination-container"></div>
+                    </div>
+
+                    <div class="card">
+                        <h2 class="text-xl font-semibold text-gray-700 mb-4">รายการรออนุมัติ</h2>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="p-3">วันที่ขออนุมัติ</th>
+                                        <th class="p-3">เลขที่เอกสาร</th>
+                                        <th class="p-3">ชื่อลูกค้า</th>
+                                        <th class="p-3">สถานะ</th>
+                                        <th class="p-3">จัดการ</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="pending-doc-table-body"></tbody>
+                            </table>
+                        </div>
+                        <div id="pending-pagination-container"></div>
                     </div>
                 </div>
                 
@@ -573,10 +576,18 @@
                     </div>
                      <!-- Filter Section for Approval Page -->
                     <div class="card mb-6">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                             <div>
                                 <label for="approve-search-input" class="block text-sm font-medium text-gray-700 mb-1">ค้นหาด้วยเลขที่เอกสาร / ชื่อลูกค้า</label>
                                 <input type="text" id="approve-search-input" class="form-input" placeholder="ค้นหา...">
+                            </div>
+                            <div>
+                                <label for="approve-level-filter" class="block text-sm font-medium text-gray-700 mb-1">ระดับที่รออนุมัติ</label>
+                                <select id="approve-level-filter" class="form-input">
+                                    <option value="">ทั้งหมด (All Levels)</option>
+                                    <option value="Level 1">รออนุมัติ Level 1</option>
+                                    <option value="Level 2">รออนุมัติ Level 2</option>
+                                </select>
                             </div>
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
@@ -909,7 +920,13 @@
         let dashboardPagination = { pending: 1, approved: 1, rejected: 1, returned: 1 };
         let dashboardData = { tables: { pending: [], approved: [], rejected: [], returned: [] } };
         let dashboardTimerInterval = null; // Timer for dashboard
+        let pendingL1DocIds = [];
+        let pendingL2DocIds = [];
+        let returnedDocIds = [];
+        let editDocPagination = { pending: 1, returned: 1 };
+        let editDocData = { pending: [], returned: [] };
         let downloadableDocs = []; // For download page search
+        let approveDocPage = 1;
         let allParts = []; // For parts management
         let shippingDocs = []; // For shipping tracking
         let approvalDocs = []; // For approval page filtering
@@ -1395,6 +1412,8 @@
                             },
                             stats: {
                                 pending: pending.length,
+                                pendingL1: processedPending.filter(d => d.nextApprover === 'Level 1').length,
+                                pendingL2: processedPending.filter(d => d.nextApprover === 'Level 2').length,
                                 approved: approved.length,
                                 rejected: rejected.length,
                                 returned: returned.length
@@ -1410,10 +1429,20 @@
                     }
                     case 'getPendingDocuments': {
                         const { email } = payload;
+                        const userRes = await fetch(`${FIREBASE_DB_URL}/Users/${encodeEmail(email)}.json`);
+                        const user = await userRes.json();
+                        const role = user ? user.Role : "User";
+
                         const docsRes = await fetch(`${FIREBASE_DB_URL}/Documents.json`);
                         const docsData = await docsRes.json() || {};
                         const pendingDocs = Object.values(docsData)
-                            .filter(doc => doc.Status === 'รออนุมัติ' && doc.RequesterEmail === email && !doc.Approver1Decision)
+                            .filter(doc => {
+                                const isPending = doc.Status === 'รออนุมัติ' && !doc.Approver1Decision;
+                                if (role === 'Admin') {
+                                    return isPending;
+                                }
+                                return isPending && doc.RequesterEmail === email;
+                            })
                             .sort((a, b) => new Date(b.CreatedAt) - new Date(a.CreatedAt))
                             .map(doc => ({
                                 CreatedAt: doc.CreatedAt,
@@ -1425,10 +1454,20 @@
                     }
                     case 'getReturnedDocuments': {
                         const { email } = payload;
+                        const userRes = await fetch(`${FIREBASE_DB_URL}/Users/${encodeEmail(email)}.json`);
+                        const user = await userRes.json();
+                        const role = user ? user.Role : "User";
+
                         const docsRes = await fetch(`${FIREBASE_DB_URL}/Documents.json`);
                         const docsData = await docsRes.json() || {};
                         const returnedDocs = Object.values(docsData)
-                            .filter(doc => doc.Status === 'ตีกลับ' && doc.RequesterEmail === email)
+                            .filter(doc => {
+                                const isReturned = doc.Status === 'ตีกลับ';
+                                if (role === 'Admin') {
+                                    return isReturned;
+                                }
+                                return isReturned && doc.RequesterEmail === email;
+                            })
                             .sort((a, b) => new Date(b.CreatedAt) - new Date(a.CreatedAt))
                             .map(doc => ({
                                 DocID: doc.DocID,
@@ -2272,6 +2311,7 @@
 
                 if (dashboardTimerInterval) clearInterval(dashboardTimerInterval);
                 dashboardTimerInterval = setInterval(updateDashboardTimers, 1000);
+                updateDashboardTimers(); // Run once immediately
             });
         }
 
@@ -2286,12 +2326,12 @@
             if(endDate) endDate.setHours(23, 59, 59, 999);
 
             let filteredData = {
-                stats: { pending: 0, approved: 0, rejected: 0, returned: 0 },
+                stats: { pendingL1: 0, pendingL2: 0, approved: 0, rejected: 0, returned: 0 },
                 tables: { pending: [], approved: [], rejected: [], returned: [] }
             };
 
             if (!startDate && !endDate) {
-                filteredData = dashboardData;
+                filteredData.tables = dashboardData.tables;
             } else {
                 for (const status in dashboardData.tables) {
                     const filteredItems = dashboardData.tables[status].filter(item => {
@@ -2308,9 +2348,25 @@
                         return true;
                     });
                     filteredData.tables[status] = filteredItems;
-                    filteredData.stats[status] = filteredItems.length;
                 }
             }
+
+            // Calculate L1 and L2 lists from the filtered pending documents
+            const pendingL1 = filteredData.tables.pending.filter(doc => doc.nextApprover === 'Level 1');
+            const pendingL2 = filteredData.tables.pending.filter(doc => doc.nextApprover === 'Level 2');
+
+            filteredData.stats = {
+                pendingL1: pendingL1.length,
+                pendingL2: pendingL2.length,
+                approved: filteredData.tables.approved.length,
+                rejected: filteredData.tables.rejected.length,
+                returned: filteredData.tables.returned.length
+            };
+
+            // Set the rotating doc list arrays globally
+            pendingL1DocIds = pendingL1.map(doc => doc.DocID);
+            pendingL2DocIds = pendingL2.map(doc => doc.DocID);
+            returnedDocIds = filteredData.tables.returned.map(doc => doc.DocID);
             
             updateDashboardStats(filteredData.stats);
             renderDashboardTable('pending', filteredData.tables.pending);
@@ -2327,14 +2383,14 @@
         function updateDashboardStats(stats) {
             const statsContainer = document.getElementById('dashboard-stats');
             statsContainer.innerHTML = `
-                <div class="card flex items-center gap-4"><i data-lucide="hourglass" class="w-12 h-12 text-yellow-500"></i><div><p class="text-lg text-gray-500">รออนุมัติ</p><p class="text-3xl font-bold text-gray-800">${stats.pending}</p></div></div>
-                <div class="card flex items-center gap-4"><i data-lucide="badge-check" class="w-12 h-12 text-green-500"></i><div><p class="text-lg text-gray-500">อนุมัติแล้ว</p><p class="text-3xl font-bold text-gray-800">${stats.approved}</p></div></div>
-                <div class="card flex items-center gap-4"><i data-lucide="badge-x" class="w-12 h-12 text-red-500"></i><div><p class="text-lg text-gray-500">ไม่อนุมัติ</p><p class="text-3xl font-bold text-gray-800">${stats.rejected}</p></div></div>
-                <div class="card flex items-center gap-4"><i data-lucide="file-clock" class="w-12 h-12 text-orange-500"></i><div><p class="text-lg text-gray-500">รอแก้ไข</p><p class="text-3xl font-bold text-gray-800">${stats.returned}</p></div></div>
+                <div class="card flex items-center gap-4"><i data-lucide="hourglass" class="w-12 h-12 text-yellow-500"></i><div><p class="text-sm text-gray-500 font-medium">รออนุมัติ L1</p><p class="text-3xl font-bold text-gray-800">${stats.pendingL1}</p><p id="l1-rotation-display" class="text-[11px] text-gray-500 mt-1 h-5 flex items-center gap-1"></p></div></div>
+                <div class="card flex items-center gap-4"><i data-lucide="hourglass" class="w-12 h-12 text-amber-600"></i><div><p class="text-sm text-gray-500 font-medium">รออนุมัติ L2</p><p class="text-3xl font-bold text-gray-800">${stats.pendingL2}</p><p id="l2-rotation-display" class="text-[11px] text-gray-500 mt-1 h-5 flex items-center gap-1"></p></div></div>
+                <div class="card flex items-center gap-4"><i data-lucide="badge-check" class="w-12 h-12 text-green-500"></i><div><p class="text-sm text-gray-500">อนุมัติแล้ว</p><p class="text-3xl font-bold text-gray-800">${stats.approved}</p></div></div>
+                <div class="card flex items-center gap-4"><i data-lucide="badge-x" class="w-12 h-12 text-red-500"></i><div><p class="text-sm text-gray-500">ไม่อนุมัติ</p><p class="text-3xl font-bold text-gray-800">${stats.rejected}</p></div></div>
+                <div class="card flex items-center gap-4"><i data-lucide="file-clock" class="w-12 h-12 text-orange-500"></i><div><p class="text-sm text-gray-500 font-medium">รอแก้ไข</p><p class="text-3xl font-bold text-gray-800">${stats.returned}</p><p id="returned-rotation-display" class="text-[11px] text-gray-500 mt-1 h-5 flex items-center gap-1"></p></div></div>
             `;
             renderIcons();
         }
-
 
         function updateDashboardTimers() {
             const now = new Date().getTime();
@@ -2349,6 +2405,39 @@
                     row.querySelector('.processing-duration-cell').textContent = formatDuration(now - processingStart);
                 }
             });
+
+            // Rotate L1 rotating doc display every 3 seconds
+            const l1El = document.getElementById('l1-rotation-display');
+            if (l1El) {
+                if (pendingL1DocIds && pendingL1DocIds.length > 0) {
+                    const idx = Math.floor(now / 3000) % pendingL1DocIds.length;
+                    l1El.innerHTML = `เลขที่: <span class="bg-blue-50 text-blue-700 px-1 py-0.5 rounded font-mono text-[10px] border border-blue-200">${pendingL1DocIds[idx]}</span>`;
+                } else {
+                    l1El.innerHTML = '<span class="text-gray-400 font-normal italic">ไม่มีเอกสาร</span>';
+                }
+            }
+
+            // Rotate L2 rotating doc display every 3 seconds
+            const l2El = document.getElementById('l2-rotation-display');
+            if (l2El) {
+                if (pendingL2DocIds && pendingL2DocIds.length > 0) {
+                    const idx = Math.floor(now / 3000) % pendingL2DocIds.length;
+                    l2El.innerHTML = `เลขที่: <span class="bg-blue-50 text-blue-700 px-1 py-0.5 rounded font-mono text-[10px] border border-blue-200">${pendingL2DocIds[idx]}</span>`;
+                } else {
+                    l2El.innerHTML = '<span class="text-gray-400 font-normal italic">ไม่มีเอกสาร</span>';
+                }
+            }
+
+            // Rotate Returned (รอแก้ไข) rotating doc display every 3 seconds
+            const returnedEl = document.getElementById('returned-rotation-display');
+            if (returnedEl) {
+                if (returnedDocIds && returnedDocIds.length > 0) {
+                    const idx = Math.floor(now / 3000) % returnedDocIds.length;
+                    returnedEl.innerHTML = `เลขที่: <span class="bg-blue-50 text-blue-700 px-1 py-0.5 rounded font-mono text-[10px] border border-blue-200">${returnedDocIds[idx]}</span>`;
+                } else {
+                    returnedEl.innerHTML = '<span class="text-gray-400 font-normal italic">ไม่มีเอกสาร</span>';
+                }
+            }
         }
 
         function renderDashboardTable(status, items) {
@@ -2450,62 +2539,155 @@
         function load_createDoc(params) {
             document.getElementById('create-doc-menu').classList.remove('hidden');
             document.getElementById('create-doc-form-container').classList.add('hidden');
+
+            const countContainer = document.getElementById('card-edit-doc-count');
+            if (countContainer) {
+                countContainer.innerHTML = 'กำลังตรวจสอบเอกสาร...';
+                countContainer.className = 'text-xs text-gray-400 mt-2';
+            }
+
+            Promise.all([
+                apiCall('getPendingDocuments', { email: currentUser.email }, false),
+                apiCall('getReturnedDocuments', { email: currentUser.email }, false)
+            ]).then(([pendingData, returnedData]) => {
+                const pendingCount = (pendingData && pendingData.documents) ? pendingData.documents.length : 0;
+                const returnedCount = (returnedData && returnedData.documents) ? returnedData.documents.length : 0;
+                const totalWaiting = pendingCount + returnedCount;
+
+                if (countContainer) {
+                    if (totalWaiting > 0) {
+                        countContainer.innerHTML = `มีเอกสารค้างอยู่ <span class="bg-red-500 text-white font-bold px-2 py-0.5 rounded-full text-xs">${totalWaiting}</span> รายการ`;
+                        countContainer.className = 'text-xs text-red-500 font-semibold mt-2';
+                    } else {
+                        countContainer.innerHTML = 'ไม่มีเอกสารค้างอยู่';
+                        countContainer.className = 'text-xs text-gray-500 mt-2';
+                    }
+                }
+            }).catch(err => {
+                console.error(err);
+                if (countContainer) {
+                    countContainer.innerHTML = 'ไม่สามารถดึงข้อมูลได้';
+                    countContainer.className = 'text-xs text-gray-400 mt-2';
+                }
+            });
+
             if (params && params.docId) {
                 editDocument(params.docId, params.isReturned);
             }
         }
 
-        function load_editDoc() {
+        function load_editDoc(resetPagination = true) {
+            if (resetPagination) {
+                editDocPagination = { pending: 1, returned: 1 };
+            }
+
             const pendingTableBody = document.getElementById('pending-doc-table-body');
             const returnedTableBody = document.getElementById('returned-doc-table-body');
             pendingTableBody.innerHTML = '<tr><td colspan="5" class="text-center p-4">กำลังโหลด...</td></tr>';
             returnedTableBody.innerHTML = '<tr><td colspan="7" class="text-center p-4">กำลังโหลด...</td></tr>';
 
-            apiCall('getPendingDocuments', { email: currentUser.email }).then(data => {
-                if (data && data.documents) {
-                    if (data.documents.length > 0) {
-                        pendingTableBody.innerHTML = data.documents.map(doc => `
-                            <tr class="border-b">
-                                <td class="p-3">${formatDateTime(doc.CreatedAt)}</td>
-                                <td class="p-3">${doc.DocID}</td>
-                                <td class="p-3">${doc.CustomerName}</td>
-                                <td class="p-3"><span class="px-2 py-1 text-xs rounded-full font-medium bg-yellow-100 text-yellow-800">รออนุมัติ</span></td>
-                                <td class="p-3 flex gap-2">
-                                    <button class="btn btn-secondary btn-sm" onclick="editDocumentWrapper('${doc.DocID}')"><i data-lucide="edit-3" class="w-4 h-4"></i></button>
-                                    <button class="btn btn-danger-secondary btn-sm" onclick="deleteDocument('${doc.DocID}')"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
-                                </td>
-                            </tr>
-                        `).join('');
-                    } else {
-                        pendingTableBody.innerHTML = '<tr><td colspan="5" class="text-center p-4 text-gray-500">ไม่มีเอกสารรอการอนุมัติ</td></tr>';
-                    }
-                    renderIcons();
-                }
+            Promise.all([
+                apiCall('getPendingDocuments', { email: currentUser.email }),
+                apiCall('getReturnedDocuments', { email: currentUser.email }, false)
+            ]).then(([pendingData, returnedData]) => {
+                editDocData.pending = (pendingData && pendingData.documents) ? pendingData.documents : [];
+                editDocData.returned = (returnedData && returnedData.documents) ? returnedData.documents : [];
+                renderEditDocTables();
+            }).catch(err => {
+                console.error(err);
+                pendingTableBody.innerHTML = '<tr><td colspan="5" class="text-center p-4 text-red-500">เกิดข้อผิดพลาดในการโหลดข้อมูล</td></tr>';
+                returnedTableBody.innerHTML = '<tr><td colspan="7" class="text-center p-4 text-red-500">เกิดข้อผิดพลาดในการโหลดข้อมูล</td></tr>';
             });
+        }
 
-            apiCall('getReturnedDocuments', { email: currentUser.email }).then(data => {
-                if (data && data.documents) {
-                    if (data.documents.length > 0) {
-                        returnedTableBody.innerHTML = data.documents.map(doc => `
-                            <tr class="border-b">
-                                <td class="p-3">${formatDateTime(doc.CreatedAt)}</td>
-                                <td class="p-3">${doc.DocID}</td>
-                                <td class="p-3">${doc.CustomerName}</td>
-                                <td class="p-3"><span class="px-2 py-1 text-xs rounded-full font-medium bg-orange-100 text-orange-800">ตีกลับ</span></td>
-                                <td class="p-3">${doc.Returner}</td>
-                                <td class="p-3 bg-orange-50">${doc.Reason}</td>
-                                <td class="p-3 flex gap-2">
-                                    <button class="btn btn-secondary btn-sm" onclick="editDocumentWrapper('${doc.DocID}', true)"><i data-lucide="edit-3" class="w-4 h-4"></i></button>
-                                    <button class="btn btn-danger-secondary btn-sm" onclick="deleteDocument('${doc.DocID}')"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
-                                </td>
-                            </tr>
-                        `).join('');
-                    } else {
-                        returnedTableBody.innerHTML = '<tr><td colspan="7" class="text-center p-4 text-gray-500">ไม่มีเอกสารที่ถูกตีกลับ</td></tr>';
-                    }
-                    renderIcons();
+        function renderEditDocTables() {
+            const pendingTableBody = document.getElementById('pending-doc-table-body');
+            const returnedTableBody = document.getElementById('returned-doc-table-body');
+            const pendingPaginationContainer = document.getElementById('pending-pagination-container');
+            const returnedPaginationContainer = document.getElementById('returned-pagination-container');
+
+            const itemsPerPage = 20;
+
+            // 1. Render Pending Table
+            if (editDocData.pending) {
+                const currentPage = editDocPagination.pending;
+                const totalPages = Math.ceil(editDocData.pending.length / itemsPerPage);
+                const paginatedItems = editDocData.pending.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+                if (paginatedItems.length > 0) {
+                    pendingTableBody.innerHTML = paginatedItems.map(doc => `
+                        <tr class="border-b">
+                            <td class="p-3">${formatDateTime(doc.CreatedAt)}</td>
+                            <td class="p-3">${doc.DocID}</td>
+                            <td class="p-3">${doc.CustomerName}</td>
+                            <td class="p-3"><span class="px-2 py-1 text-xs rounded-full font-medium bg-yellow-100 text-yellow-800">รออนุมัติ</span></td>
+                            <td class="p-3 flex gap-2">
+                                <button class="btn btn-secondary btn-sm" onclick="editDocumentWrapper('${doc.DocID}')"><i data-lucide="edit-3" class="w-4 h-4"></i></button>
+                                <button class="btn btn-danger-secondary btn-sm" onclick="deleteDocument('${doc.DocID}')"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                            </td>
+                        </tr>
+                    `).join('');
+                } else {
+                    pendingTableBody.innerHTML = '<tr><td colspan="5" class="text-center p-4 text-gray-500">ไม่มีเอกสารรอการอนุมัติ</td></tr>';
                 }
-            });
+
+                // Render pending pagination
+                if (totalPages > 1) {
+                    pendingPaginationContainer.innerHTML = `
+                        <div class="flex justify-center items-center gap-4 mt-4">
+                            <button ${currentPage === 1 ? 'disabled' : ''} onclick="changeEditDocPage('pending', ${currentPage - 1})" class="btn-pagination"><<</button>
+                            <span>หน้า ${currentPage} / ${totalPages}</span>
+                            <button ${currentPage === totalPages ? 'disabled' : ''} onclick="changeEditDocPage('pending', ${currentPage + 1})" class="btn-pagination">>></button>
+                        </div>`;
+                } else {
+                    pendingPaginationContainer.innerHTML = '';
+                }
+            }
+
+            // 2. Render Returned Table
+            if (editDocData.returned) {
+                const currentPage = editDocPagination.returned;
+                const totalPages = Math.ceil(editDocData.returned.length / itemsPerPage);
+                const paginatedItems = editDocData.returned.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+                if (paginatedItems.length > 0) {
+                    returnedTableBody.innerHTML = paginatedItems.map(doc => `
+                        <tr class="border-b">
+                            <td class="p-3">${formatDateTime(doc.CreatedAt)}</td>
+                            <td class="p-3">${doc.DocID}</td>
+                            <td class="p-3">${doc.CustomerName}</td>
+                            <td class="p-3"><span class="px-2 py-1 text-xs rounded-full font-medium bg-orange-100 text-orange-800">ตีกลับ</span></td>
+                            <td class="p-3">${doc.Returner}</td>
+                            <td class="p-3 bg-orange-50">${doc.Reason}</td>
+                            <td class="p-3 flex gap-2">
+                                <button class="btn btn-secondary btn-sm" onclick="editDocumentWrapper('${doc.DocID}', true)"><i data-lucide="edit-3" class="w-4 h-4"></i></button>
+                                <button class="btn btn-danger-secondary btn-sm" onclick="deleteDocument('${doc.DocID}')"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                            </td>
+                        </tr>
+                    `).join('');
+                } else {
+                    returnedTableBody.innerHTML = '<tr><td colspan="7" class="text-center p-4 text-gray-500">ไม่มีเอกสารที่ถูกตีกลับ</td></tr>';
+                }
+
+                // Render returned pagination
+                if (totalPages > 1) {
+                    returnedPaginationContainer.innerHTML = `
+                        <div class="flex justify-center items-center gap-4 mt-4">
+                            <button ${currentPage === 1 ? 'disabled' : ''} onclick="changeEditDocPage('returned', ${currentPage - 1})" class="btn-pagination"><<</button>
+                            <span>หน้า ${currentPage} / ${totalPages}</span>
+                            <button ${currentPage === totalPages ? 'disabled' : ''} onclick="changeEditDocPage('returned', ${currentPage + 1})" class="btn-pagination">>></button>
+                        </div>`;
+                } else {
+                    returnedPaginationContainer.innerHTML = '';
+                }
+            }
+
+            renderIcons();
+        }
+
+        function changeEditDocPage(status, newPage) {
+            editDocPagination[status] = newPage;
+            renderEditDocTables();
         }
 
         function load_approveDoc(resetDates = true) {
@@ -2522,6 +2704,8 @@
                 document.getElementById('approve-search-input').value = '';
                 document.getElementById('approve-start-date').value = '';
                 document.getElementById('approve-end-date').value = '';
+                document.getElementById('approve-level-filter').value = '';
+                approveDocPage = 1;
             }
             
             apiCall('getDocuments', { type: 'forApproval', userApprovalLevel: currentUser.approvalLevel }).then(data => {
@@ -2540,6 +2724,7 @@
             const searchTerm = document.getElementById('approve-search-input').value.toLowerCase();
             const startDateString = document.getElementById('approve-start-date').value;
             const endDateString = document.getElementById('approve-end-date').value;
+            const levelFilterValue = document.getElementById('approve-level-filter').value;
 
             const startDate = startDateString ? new Date(startDateString) : null;
             if (startDate) startDate.setHours(0, 0, 0, 0);
@@ -2554,12 +2739,23 @@
 
                 const matchesDate = (!startDate || docDate >= startDate) &&
                                     (!endDate || docDate <= endDate);
+
+                const matchesLevel = levelFilterValue === '' ||
+                                     (levelFilterValue === 'Level 1' && doc.stage === 'รออนุมัติ Level 1') ||
+                                     (levelFilterValue === 'Level 2' && doc.stage === 'รออนุมัติ Level 2');
                                     
-                return matchesSearch && matchesDate;
+                return matchesSearch && matchesDate && matchesLevel;
             });
             
-            if (filteredDocs.length > 0) {
-                 const listHtml = filteredDocs.map(doc => `
+            const itemsPerPage = 10;
+            const totalPages = Math.ceil(filteredDocs.length / itemsPerPage);
+            if (approveDocPage > totalPages) {
+                approveDocPage = Math.max(1, totalPages);
+            }
+            const paginatedDocs = filteredDocs.slice((approveDocPage - 1) * itemsPerPage, approveDocPage * itemsPerPage);
+
+            if (paginatedDocs.length > 0) {
+                 const listHtml = paginatedDocs.map(doc => `
                     <div class="p-4 mb-3 border rounded-lg cursor-pointer hover:bg-gray-50 hover:shadow-md transition-all" onclick="viewApprovalDetails('${doc.DocID}')">
                         <div class="flex justify-between items-start mb-2">
                             <div>
@@ -2582,11 +2778,27 @@
                         </div>
                     </div>
                 `).join('');
-                container.innerHTML = `<div class="card">${listHtml}</div>`;
+
+                let paginationHtml = '';
+                if (totalPages > 1) {
+                    paginationHtml = `
+                        <div class="flex justify-center items-center gap-4 mt-6">
+                            <button ${approveDocPage === 1 ? 'disabled' : ''} onclick="changeApproveDocPage(${approveDocPage - 1})" class="btn-pagination"><<</button>
+                            <span>หน้า ${approveDocPage} / ${totalPages}</span>
+                            <button ${approveDocPage === totalPages ? 'disabled' : ''} onclick="changeApproveDocPage(${approveDocPage + 1})" class="btn-pagination">>></button>
+                        </div>`;
+                }
+
+                container.innerHTML = `<div class="card">${listHtml}</div>${paginationHtml}`;
             } else {
                 container.innerHTML = '<div class="card text-center text-gray-500">ไม่พบเอกสารที่ตรงกับเงื่อนไข</div>';
             }
             renderIcons();
+        }
+
+        function changeApproveDocPage(newPage) {
+            approveDocPage = newPage;
+            renderApprovalList();
         }
         
         function viewApprovalDetails(docId) {
@@ -4505,12 +4717,32 @@ async function showShippingTimeline(docId) {
             });
 
             // --- Approval Page Search Listeners ---
-            document.getElementById('approve-search-input').addEventListener('input', renderApprovalList);
-            document.getElementById('approve-search-btn').addEventListener('click', renderApprovalList);
+            document.getElementById('approve-search-input').addEventListener('input', () => {
+                approveDocPage = 1;
+                renderApprovalList();
+            });
+            document.getElementById('approve-search-btn').addEventListener('click', () => {
+                approveDocPage = 1;
+                renderApprovalList();
+            });
+            document.getElementById('approve-start-date').addEventListener('change', () => {
+                approveDocPage = 1;
+                renderApprovalList();
+            });
+            document.getElementById('approve-end-date').addEventListener('change', () => {
+                approveDocPage = 1;
+                renderApprovalList();
+            });
+            document.getElementById('approve-level-filter').addEventListener('change', () => {
+                approveDocPage = 1;
+                renderApprovalList();
+            });
             document.getElementById('approve-clear-btn').addEventListener('click', () => {
                 document.getElementById('approve-search-input').value = '';
                 document.getElementById('approve-start-date').value = '';
                 document.getElementById('approve-end-date').value = '';
+                document.getElementById('approve-level-filter').value = '';
+                approveDocPage = 1;
                 renderApprovalList();
             });
 
