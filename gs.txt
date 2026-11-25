@@ -15,7 +15,7 @@ let settingsSheet = ss.getSheetByName("Settings");
 let partsSheet = ss.getSheetByName("Parts");
 
 const usersHeaders = ["UserID", "Name", "Email", "Phone", "PasswordHash", "Salt", "Role", "ApprovalLevel", "SignatureLink", "CreatedAt"];
-const docsHeaders = ["DocID", "CreatedAt", "RequesterEmail", "RequesterName", "Status", "Type", "CustomerType", "RepairRequestNo", "CustomerName", "DefectSymptom", "MachineModel", "SerialNumber", "DishFeederModel", "FeederSerialNumber", "Technician", "RequesterNotes", "ItemsJSON", "TotalPrice", "RequesterSignatureLink", "Approver1Email", "Approver1Decision", "Approver1Notes", "Approver1Timestamp", "Approver1SignatureLink", "Approver2Email", "Approver2Decision", "Approver2Notes", "Approver2Timestamp", "Approver2SignatureLink", "ShippingStatus", "TrackingNumber", "InTransitTimestamp", "ShippedOutTimestamp", "ReceivedTimestamp", "ShipmentNotes", "ShipmentImagesJSON", "PdfLink"];
+const docsHeaders = ["DocID", "CreatedAt", "RequesterEmail", "RequesterName", "Status", "Type", "CustomerType", "RepairRequestNo", "CustomerName", "DefectSymptom", "DefectImagesJSON", "MachineModel", "SerialNumber", "DishFeederModel", "FeederSerialNumber", "Technician", "RequesterNotes", "ItemsJSON", "TotalPrice", "RequesterSignatureLink", "Approver1Email", "Approver1Decision", "Approver1Notes", "Approver1Timestamp", "Approver1SignatureLink", "Approver2Email", "Approver2Decision", "Approver2Notes", "Approver2Timestamp", "Approver2SignatureLink", "ShippingStatus", "TrackingNumber", "InTransitTimestamp", "ShippedOutTimestamp", "ReceivedTimestamp", "ShipmentNotes", "ShipmentImagesJSON", "PdfLink"];
 const settingsHeaders = ["SettingName", "Value"];
 const partsHeaders = ["StockGroup", "PartCode", "PartName", "Price", "Unit", "Location"];
 
@@ -215,6 +215,8 @@ function doPost(e) {
         return jsonResponse(updateSignature(payload));
       case 'uploadShipmentImages':
         return jsonResponse(uploadShipmentImages(payload));
+      case 'uploadDefectImages':
+        return jsonResponse(uploadDefectImages(payload));
       default:
         return jsonResponse({ error: "Invalid action for file-upload server" }, false);
     }
@@ -268,6 +270,27 @@ function uploadShipmentImages(payload) {
         images.forEach((imgData, index) => {
             if (imgData.startsWith('data:image')) {
                 const fileName = `${docId}_shipping_${Date.now()}_${index + 1}.png`;
+                const imgLink = saveFileToDrive(imgData, docFolder.getId(), fileName, 'image/png');
+                if (imgLink) {
+                    imageLinks.push(imgLink);
+                }
+            }
+        });
+    }
+    return { success: true, imageLinks: imageLinks };
+}
+
+/**
+ * Upload multiple defect base64 images to Google Drive and return links
+ */
+function uploadDefectImages(payload) {
+    const { docId, images } = payload;
+    let imageLinks = [];
+    if (images && Array.isArray(images) && images.length > 0) {
+        const docFolder = getOrCreateDocFolder(SHIPMENT_IMAGE_FOLDER_ID, docId);
+        images.forEach((imgData, index) => {
+            if (imgData && imgData.startsWith('data:image')) {
+                const fileName = `${docId}_defect_${Date.now()}_${index + 1}.png`;
                 const imgLink = saveFileToDrive(imgData, docFolder.getId(), fileName, 'image/png');
                 if (imgLink) {
                     imageLinks.push(imgLink);
