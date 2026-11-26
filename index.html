@@ -1795,7 +1795,7 @@
                                 const needsL1Approval = !doc.Approver1Decision;
                                 const needsL2Approval = doc.Approver1Decision === 'approve' && !doc.Approver2Decision;
                                 return (needsL1Approval && canApproveL1) || (needsL2Approval && canApproveL2);
-                            });
+                            }).sort((a, b) => (new Date(a.CreatedAt).getTime() || 0) - (new Date(b.CreatedAt).getTime() || 0));
                         } else if (type === 'downloadable') {
                             if (!parsedStart && !parsedEnd) {
                                 parsedStart = new Date();
@@ -3211,7 +3211,7 @@
                                      (levelFilterValue === 'Level 2' && doc.stage === 'รออนุมัติ Level 2');
                                     
                 return matchesSearch && matchesDate && matchesLevel;
-            });
+            }).sort((a, b) => (new Date(a.CreatedAt).getTime() || 0) - (new Date(b.CreatedAt).getTime() || 0));
             
             const itemsPerPage = 10;
             const totalPages = Math.ceil(filteredDocs.length / itemsPerPage);
